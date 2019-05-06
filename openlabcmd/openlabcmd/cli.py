@@ -1,12 +1,12 @@
 import argparse
 import configparser
 import os
+import subprocess
 import sys
 import yaml
 
 from openlabcmd import exceptions
 from openlabcmd.plugins import base
-from openlabcmd import service
 from openlabcmd import utils
 from openlabcmd.utils import _color
 from openlabcmd import zk
@@ -70,12 +70,12 @@ class OpenLabCmd(object):
         cmd_ha_node_get.add_argument('name', help='The node hostname.')
         # openlab ha node create
         cmd_ha_node_create = cmd_ha_node_subparsers.add_parser(
-            'init', help='Create a new node. This command usually should be'
-                         'called by CI environment deploy tools when creating'
+            'init', help='Create a new node. This command usually should be '
+                         'called by CI environment deploy tools when creating '
                          'a new system. Operators should be careful for this '
-                         'command. One case for this command may like: the'
+                         'command. One case for this command may like: the '
                          'data in zookeeper is broken or missing, but the '
-                         'node works well. So that operators need to rebuild '
+                         'node works well, so that operators need to rebuild '
                          'the node info.')
         cmd_ha_node_create.set_defaults(func=self.ha_node_create)
         cmd_ha_node_create.add_argument(
@@ -103,7 +103,7 @@ class OpenLabCmd(object):
                                      help='Set the node to maintained status.')
         cmd_ha_node_set.add_argument(
             '--role', choices=['master', 'slave'],
-            help="Update node role. It should be either 'master' or 'slave'."
+            help="Update node role. It should be either 'master' or 'slave'. "
                  "Be careful to update the role, you should not update role "
                  "except emergency situations, because it will impact "
                  "checking scope of HA monitor , HA monitor will check and "
@@ -138,9 +138,11 @@ class OpenLabCmd(object):
         cmd_ha_service_get.set_defaults(func=self.ha_service_get)
         cmd_ha_service_get.add_argument('name', help='service name.')
         cmd_ha_service_get.add_argument(
-            '--role', choices=['master', 'slave', 'zookeeper'],
-            help="The role of the node where the service run. It must be "
-                 "specified if the service is in %s." % service.MIXED_SERVICE)
+            '--role', required=True, choices=['master', 'slave', 'zookeeper'],
+            help="The role of the node where the service run.")
+        cmd_ha_service_get.add_argument(
+            '--type', required=True, choices=['zuul', 'nodepool', 'zookeeper'],
+            help="The type of the node where the service run.")
 
     def _add_ha_cmd(self, parser):
         # openlab ha
@@ -230,7 +232,7 @@ class OpenLabCmd(object):
         if self.args.format == 'pretty':
             print(utils.format_output('node', result))
         else:
-            print(result)
+            print(result.to_dict())
 
     @_zk_wrapper
     def ha_node_get(self):
@@ -239,18 +241,18 @@ class OpenLabCmd(object):
         if self.args.format == 'pretty':
             print(utils.format_output('node', result))
         else:
-            print(result)
+            print(result.to_dict())
 
     @_zk_wrapper
     def ha_node_create(self):
         if self.args.type == 'zookeeper':
             if self.args.role != 'zookeeper':
                 raise argparse.ArgumentTypeError(
-                    'zookeeper node must zookeeper type.')
+                    'zookeeper node must  be zookeeper type.')
         else:
             if self.args.role == 'zookeeper':
                 raise argparse.ArgumentTypeError(
-                    'zookeeper node must zookeeper type.')
+                    'zookeeper node must be zookeeper type.')
 
         result = self.zk.create_node(self.args.name, self.args.role,
                                      self.args.type, self.args.ip)
@@ -258,7 +260,7 @@ class OpenLabCmd(object):
         if self.args.format == 'pretty':
             print(utils.format_output('node', result))
         else:
-            print(result)
+            print(result.to_dict())
 
     @_zk_wrapper
     def ha_node_update(self):
@@ -271,7 +273,7 @@ class OpenLabCmd(object):
         if self.args.format == 'pretty':
             print(utils.format_output('node', result))
         else:
-            print(result)
+            print(result.to_dict())
 
     @_zk_wrapper
     def ha_node_delete(self):
@@ -284,25 +286,25 @@ class OpenLabCmd(object):
         if self.args.format == 'pretty':
             print(utils.format_output('service', result))
         else:
-            print(result)
+            print(result.to_dict())
 
     @_zk_wrapper
     def ha_service_get(self):
-        if (self.args.name.lower() in service.MIXED_SERVICE and
-                not self.args.role):
-            raise argparse.ArgumentTypeError(
-                'Role must be specified if service is in '
-                '%s.' % service.MIXED_SERVICE)
-        result = self.zk.get_service(self.args.name.lower(), self.args.role)
+        result = self.zk.get_service(self.args.name.lower(), self.args.role,
+                                     self.args.type)
         if self.args.format == 'pretty':
             print(utils.format_output('service', result))
         else:
-            print(result)
+            print(result.to_dict())
 
     def run(self):
         # no arguments, print help messaging, then exit with error(1)
         if not self.args.command:
             self.parser.print_help()
+            return 1
+        if not getattr(self.args, 'func', None):
+            help_message = subprocess.getoutput("%s -h" % ' '.join(sys.argv))
+            print(help_message)
             return 1
         try:
             self.args.func()

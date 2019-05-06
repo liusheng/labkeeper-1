@@ -1,4 +1,7 @@
+import datetime
 import json
+
+import pytz
 
 
 class NodeStatus(object):
@@ -10,7 +13,7 @@ class NodeStatus(object):
 
 class Node(object):
     def __init__(self, name, role, type, ip, heartbeat=None, alarmed=None,
-                 status=None, **kwargs):
+                 status=None, created_at=None, updated_at=None, **kwargs):
         self.name = name
         self.role = role
         self.type = type
@@ -18,8 +21,10 @@ class Node(object):
         self.heartbeat = heartbeat or 0
         self.alarmed = alarmed or False
         self.status = status or NodeStatus.INITIALIZING
+        self.created_at = created_at
+        self.updated_at = updated_at
 
-    def to_zk_data(self):
+    def to_zk_bytes(self):
         node_dict = {
             'name': self.name,
             'role': self.role,
@@ -31,6 +36,21 @@ class Node(object):
         }
         return json.dumps(node_dict).encode('utf8')
 
-    @ classmethod
-    def from_dict(cls, d):
-        return cls(**d)
+    def to_dict(self):
+        return self.__dict__
+
+    def update(self, update_dict):
+        for k, v in update_dict.items():
+            if getattr(self, k, None):
+                setattr(self, k, v)
+
+    @classmethod
+    def from_zk_bytes(cls, zk_bytes):
+        node_dict = json.loads(zk_bytes[0].decode('utf8'))
+        # ctime and mtime is millisecond in zk. Convert to second.
+        ctime, mtime = zk_bytes[1].ctime / 1000, zk_bytes[1].mtime / 1000
+        node_dict['created_at'] = datetime.datetime.fromtimestamp(
+                ctime, pytz.utc).isoformat()
+        node_dict['updated_at'] = datetime.datetime.fromtimestamp(
+                mtime, pytz.utc).isoformat()
+        return cls(**node_dict)
