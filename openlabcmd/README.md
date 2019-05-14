@@ -95,16 +95,27 @@ CRUD for node
 Get or list the service running in cluster.
 
 * openlab ha service list
+  ```
+  usage: openlab ha service list [-h] [--node NODE]
+                                 [--role {master,slave,zookeeper}]
+                                 [--status {up,down,restarting}]
+
+  optional arguments:
+    -h, --help            show this help message and exit
+    --node NODE           Filter the services with the specified node name.
+    --role {master,slave,zookeeper}
+                          Filter the services with the specified node role.
+    --status {up,down,restarting}
+                          Filter the services with the specified status.
+  ```
 * openlab ha service get
   ```
-  usage: openlab ha service get [-h] [--role {master,slave,zookeeper}] name
+  usage: openlab ha service get [-h] --node NODE name
 
   positional arguments:
     name                  service name.
 
   optional arguments:
     -h, --help            show this help message and exit
-    --role {master,slave,zookeeper}
-                          The role of the node where the service run. It must be
-                          sepcified if the service is 'mysql' or 'zookeeper'.
+    --node NODE  The node where the service run.
   ```

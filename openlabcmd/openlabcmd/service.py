@@ -43,19 +43,20 @@ class ServiceStatus(object):
     UP = 'up'
     DOWN = 'down'
     RESTARTING = 'restarting'
+    ERROR = 'error'
 
     @property
     def all_status(self):
-        return [self.INITIALIZING, self.UP, self.DOWN, self.RESTARTING]
+        return [self.INITIALIZING, self.UP, self.DOWN, self.RESTARTING,
+                self.ERROR]
 
 
 class Service(object):
-    def __init__(self, name, node_role, node_name=None, alarmed=None,
+    def __init__(self, name, node_name, alarmed=None,
                  alarmed_at=None, restarted=None, restarted_at=None,
                  is_necessary=None, status=None, created_at=None,
                  updated_at=None, **kwargs):
         self.name = name
-        self.node_role = node_role
         self.node_name = node_name
         self.alarmed = alarmed or False
         self.alarmed_at = alarmed_at
@@ -69,7 +70,6 @@ class Service(object):
     def to_zk_bytes(self):
         node_dict = {
             'name': self.name,
-            'node_role': self.node_role,
             'node_name': self.node_name,
             'alarmed': self.alarmed,
             'alarmed_at': self.alarmed_at,
@@ -85,8 +85,11 @@ class Service(object):
 
     def update(self, update_dict):
         for k, v in update_dict.items():
-            if getattr(self, k, None):
+            try:
+                getattr(self, k)
                 setattr(self, k, v)
+            except AttributeError:
+                pass
 
     @classmethod
     def from_zk_bytes(cls, zk_bytes):
@@ -99,12 +102,12 @@ class Service(object):
 
 
 class NecessaryService(Service):
-    def __init__(self, name, node_role, node_name):
-        super(NecessaryService, self).__init__(name, node_role, node_name)
+    def __init__(self, name, node_name):
+        super(NecessaryService, self).__init__(name, node_name)
         self.is_necessary = True
 
 
 class UnnecessaryService(Service):
-    def __init__(self, name, node_role, node_name):
-        super(UnnecessaryService, self).__init__(name, node_role, node_name)
+    def __init__(self, name, node_name):
+        super(UnnecessaryService, self).__init__(name, node_name)
         self.is_necessary = False
