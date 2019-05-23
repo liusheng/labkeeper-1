@@ -1,5 +1,6 @@
 import configparser
 import datetime
+import json
 import logging
 import time
 
@@ -10,6 +11,23 @@ from kazoo.handlers.threading import KazooTimeoutError
 from openlabcmd import exceptions
 from openlabcmd import node
 from openlabcmd import service
+
+
+CONFIGURATION_DICT = {
+    'dns_log_domain': 'test-logs.openlabtesting.org',
+    'dns_master_public_ip': None,
+    'dns_provider_account': None,
+    'dns_provider_api_url': 'https://api.dnsimple.com/v2/',
+    'dns_provider_token': None,
+    'dns_slave_public_ip': None,
+    'dns_status_domain': 'test-status.openlabtesting.org',
+    'github_repo': None,
+    'github_user_token': None,
+    'heartbeat_timeout_second': 150,
+    'logging_level': 'DEBUG',
+    'logging_path': '/etc/openlab/ha_healthchecker/ha_healthchecker.log',
+    'unnecessary_service_switch_timeout_hour': 48,
+}
 
 
 class ZooKeeper(object):
@@ -109,8 +127,9 @@ class ZooKeeper(object):
         try:
             nodes_objs = []
             for exist_node in self.client.get_children(path):
-                node_obj = self.get_node(exist_node)
-                nodes_objs.append(node_obj)
+                if exist_node != 'configuration':
+                    node_obj = self.get_node(exist_node)
+                    nodes_objs.append(node_obj)
         except kze.NoNodeError:
             return []
         return sorted(nodes_objs, key=lambda x: x.name)
@@ -285,13 +304,15 @@ class ZooKeeper(object):
                 raise exceptions.ValidationError('alarmed should be boolean '
                                                  'value.')
             old_service.alarmed = alarmed
-            old_service.alarmed_at = current_time
+            if alarmed:
+                old_service.alarmed_at = current_time
         if restarted is not None:
             if not isinstance(restarted, bool):
                 raise exceptions.ValidationError('restarted should be '
                                                  'boolean value.')
             old_service.restarted = restarted
-            old_service.restarted_at = current_time
+            if restarted:
+                old_service.restarted_at = current_time
         if status:
             if status not in service.ServiceStatus().all_status:
                 raise exceptions.ValidationError(
@@ -304,3 +325,39 @@ class ZooKeeper(object):
 
         new_service = self.get_service(service_name, node_name)
         return new_service
+
+    @_client_check_wrapper
+    def switch_master_and_slave(self):
+        """Mark node's switch status to start.
+
+        This func is called by labkeeper deploy tool. So that operators can
+        switch master-slave role by hand. Once health checker find that all
+        nodes' switch status are `start`, it will start to switch cluster.
+        """
+        for node in self.list_nodes():
+            self.update_node(node.name, switch_status='start')
+
+    def _init_ha_configuration(self):
+        path = '/ha/configuration'
+        self.client.create(path,
+                           value=json.dumps(CONFIGURATION_DICT).encode('utf8'),
+                           makepath=True)
+
+    @_client_check_wrapper
+    def list_configuration(self):
+        path = '/ha/configuration'
+        try:
+            config_bytes = self.client.get(path)
+        except kze.NoNodeError:
+            self._init_ha_configuration()
+            config_bytes = self.client.get(path)
+        return json.loads(config_bytes[0].decode('utf8'))
+
+    @_client_check_wrapper
+    def update_configuration(self, name, value):
+        path = '/ha/configuration'
+        configs = self.list_configuration()
+        if name not in configs.keys():
+            raise exceptions.ClientError('There is not option %s' % name)
+        configs[name] = value
+        self.client.set(path, json.dumps(configs).encode('utf8'))

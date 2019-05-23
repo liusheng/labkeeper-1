@@ -43,9 +43,10 @@ class OpenLabCmd(object):
         cmd_check = parser.add_parser('check',
                                       help='Check OpenLab environment.')
         cmd_check.set_defaults(func=self.check)
-        cmd_check.add_argument('--type', default='all',
+        cmd_check.add_argument('--type', default='default',
                                help="Specify a plugin type, like 'nodepool', "
-                                    "'jobs'. Default is 'all'.")
+                                    "'jobs', 'all'. Default is 'default',"
+                                    " will skip the experimental plugins.")
         cmd_check.add_argument('--cloud', default='all',
                                help="Specify a cloud provider, like 'otc', "
                                     "'vexxhost'. Default is 'all'.")
@@ -144,6 +145,37 @@ class OpenLabCmd(object):
         cmd_ha_service_get.add_argument(
             '--node', required=True, help="The node where the service run.")
 
+    def _add_ha_cluster_cmd(self, parser):
+        # openlab ha cluster
+        cmd_ha_cluster = parser.add_parser('cluster',
+                                           help='Manage HA cluster.')
+        cmd_ha_cluster_subparsers = cmd_ha_cluster.add_subparsers(
+            title='cluster', dest='cluster')
+        # openlab ha cluster switch
+        cmd_ha_service_get = cmd_ha_cluster_subparsers.add_parser(
+            'switch', help='Switch Master and Slave role.')
+        cmd_ha_service_get.set_defaults(func=self.ha_cluster_switch)
+
+    def _add_ha_config_cmd(self, parser):
+        # openlab ha cluster
+        cmd_ha_config = parser.add_parser('config',
+                                          help='Manage HA cluster '
+                                               'configuration.')
+        cmd_ha_config_subparsers = cmd_ha_config.add_subparsers(
+            title='config', dest='configuration')
+        # openlab ha config list
+        cmd_ha_config_list = cmd_ha_config_subparsers.add_parser(
+            'list', help='List all HA cluster config options.')
+        cmd_ha_config_list.set_defaults(func=self.ha_config_list)
+        # openlab ha config set
+        cmd_ha_config_set = cmd_ha_config_subparsers.add_parser(
+            'set', help='Update a HA cluster config option.')
+        cmd_ha_config_set.set_defaults(func=self.ha_config_update)
+        cmd_ha_config_set.add_argument('name',
+                                       help='The name of config option.')
+        cmd_ha_config_set.add_argument('value',
+                                       help='The value of config option.')
+
     def _add_ha_cmd(self, parser):
         # openlab ha
         cmd_ha = parser.add_parser('ha',
@@ -151,6 +183,8 @@ class OpenLabCmd(object):
         cmd_ha_subparsers = cmd_ha.add_subparsers(title='ha', dest='ha')
         self._add_ha_node_cmd(cmd_ha_subparsers)
         self._add_ha_service_cmd(cmd_ha_subparsers)
+        self._add_ha_cluster_cmd(cmd_ha_subparsers)
+        self._add_ha_config_cmd(cmd_ha_subparsers)
 
     def create_parser(self):
         parser = argparse.ArgumentParser(
@@ -195,14 +229,18 @@ class OpenLabCmd(object):
 
         cloud_list = self._get_cloud_list(self.args.cloud)
 
-        if self.args.type != 'all':
+        if self.args.type == 'default':
+            plugins = list(filter(lambda x: not x.experimental,
+                                  base.Plugin.plugins))
+        elif self.args.type == 'all':
+            plugins = base.Plugin.plugins
+        else:
             # Filter the plugins with specific ptype
             plugins = list(filter(lambda x: x.ptype == self.args.type,
                                   base.Plugin.plugins))
-        else:
-            plugins = base.Plugin.plugins
 
         cnt = len(cloud_list)
+        exit_flag = False
         for i, c in enumerate(cloud_list):
             header = "%s/%s. %s cloud check" % (i + 1, cnt, c)
             self._header_print(header)
@@ -214,6 +252,11 @@ class OpenLabCmd(object):
                 # the failed flag would be record when do check()
                 if self.args.recover and plugin.failed:
                     plugin.recover()
+                if plugin.failed:
+                    exit_flag = True
+
+        if exit_flag:
+            raise exceptions.ClientError("Error: cloud check failed.")
 
     def _zk_wrapper(func):
         def wrapper(self, *args, **kwargs):
@@ -297,6 +340,26 @@ class OpenLabCmd(object):
         else:
             print(result.to_dict())
 
+    @_zk_wrapper
+    def ha_cluster_switch(self):
+        try:
+            self.zk.switch_master_and_slave()
+            print("Switch success")
+        except exceptions.OpenLabCmdError:
+            print("Switch failed")
+
+    @_zk_wrapper
+    def ha_config_list(self):
+        result = self.zk.list_configuration()
+        if self.args.format == 'pretty':
+            print(utils.format_dict(result))
+        else:
+            print(result)
+
+    @_zk_wrapper
+    def ha_config_update(self):
+        self.zk.update_configuration(self.args.name, self.args.value)
+
     def run(self):
         # no arguments, print help messaging, then exit with error(1)
         if not self.args.command:
@@ -306,11 +369,8 @@ class OpenLabCmd(object):
             help_message = subprocess.getoutput("%s -h" % ' '.join(sys.argv))
             print(help_message)
             return 1
-        try:
-            self.args.func()
-        except exceptions.ClientError as e:
-            print(e)
-            return 1
+        self.args.func()
+
 
     def _initConfig(self):
         self.config = configparser.ConfigParser()
@@ -329,10 +389,14 @@ class OpenLabCmd(object):
                                      "%s" % locations)
 
     def _main(self):
-        self.parser = self.create_parser()
-        self.args = self.parser.parse_args()
-        self._initConfig()
-        self.run()
+        try:
+            self.parser = self.create_parser()
+            self.args = self.parser.parse_args()
+            self._initConfig()
+            return self.run()
+        except exceptions.OpenLabCmdError as e:
+            print(e)
+            return 1
 
     @classmethod
     def main(cls):

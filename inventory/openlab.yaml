@@ -9,6 +9,7 @@ all:
   vars:
     zuul_tenant_name: openlab
     labsync_enabled: true
+    labcheck_enabled: true
   children:
     nodepool:
       children:
@@ -55,6 +56,8 @@ all:
       hosts: zuul01
     statsd:
       hosts: zuul01
+      vars:
+        statsd_service_statsd_state: stopped
     zookeeper:
       hosts: nodepool01
     mysql:
