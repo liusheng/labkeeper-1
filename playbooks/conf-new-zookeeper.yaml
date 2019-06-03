@@ -58,10 +58,6 @@
     - name: Restart zookeeper services
       service: name=zookeeper state=restarted
 
-- import_playbook: zuul-log-server.yaml
-- import_playbook: ha_log_cfg_sync.yaml
-- import_playbook: ha_mysql_configure.yaml
-
 - name: Update zookeeper config for zuul
   become: yes
   hosts: nodepool-builder-master, nodepool-builder-slave
@@ -97,13 +93,3 @@
         section: "ha"
         option: "zookeeper_hosts"
         value: "{{ groups['zookeeper'] | map('extract', hostvars, ['ansible_host']) | join(', ') }}"
-
-- name: Run openlabcmd
-  become: yes
-  hosts: zuul-master
-  tasks:
-    - name: Run openlab ha config set cmd
-      shell: |
-        openlab ha config set dns_slave_public_ip '{{ hostvars[groups["zuul-slave"][0]].ansible_host }}'
-      args:
-        executable: /bin/bash

@@ -38,6 +38,17 @@ OpenLab HA cluster management commands.
 CRUD for node
 
 * openlab ha node list
+  ```
+  usage: openlab ha node list [-h] [--type {nodepool,zuul,zookeeper}]
+                                 [--role {master,slave,zookeeper}]
+
+  optional arguments:
+    -h, --help            show this help message and exit
+    --type {nodepool,zuul,zookeeper}
+                          Filter the services with the specified node type.
+    --role {master,slave,zookeeper}
+                          Filter the services with the specified node role.
+  ```
 * openlab ha node get
   ```
   usage: openlab ha node get [-h] name
@@ -155,3 +166,21 @@ Mange the HA cluster configuration
     -h, --help            show this help message and exit
 
   ```
+
+
+### repo
+The management tool for the repos which enable the OpenLab.
+
+```
+usage: openlab repo list [-h] [--server SERVER] [--app-id APP_ID]
+                         [--app-key APP_KEY]
+
+optional arguments:
+  -h, --help         show this help message and exit
+  --server SERVER    Specify base server url. Default is github.com
+  --app-id APP_ID    Specify the github APP ID, Default is 6778 (allinone:
+                     7102, OpenLab: 6778).
+  --app-key APP_KEY  Specify the app key file path. Default is
+                     /var/lib/zuul/openlab-app-key.pem
+```
+

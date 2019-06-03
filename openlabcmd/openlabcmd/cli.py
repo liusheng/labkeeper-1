@@ -10,6 +10,7 @@ from openlabcmd.plugins import base
 from openlabcmd import utils
 from openlabcmd.utils import _color
 from openlabcmd import zk
+from openlabcmd import repo
 
 
 class OpenLabCmd(object):
@@ -55,6 +56,28 @@ class OpenLabCmd(object):
         cmd_check.add_argument('--recover', action='store_true',
                                help='Enable the auto recover mode.')
 
+    def _add_repo_cmd(self, parser):
+        # openlab repo list
+        cmd_repo = parser.add_parser(
+            'repo',
+            help='The repos which enable the OpenLab.')
+        cmd_repo_list_sub = cmd_repo.add_subparsers(title='repo',dest='repo')
+        cmd_repo_list = cmd_repo_list_sub.add_parser(
+            'list', help='List the repos which enable the OpenLab app.')
+
+        cmd_repo_list.set_defaults(func=self.repo_list)
+        cmd_repo_list.add_argument('--server', default='github.com',
+                                   help="Specify base server url. Default is "
+                                        "github.com")
+        cmd_repo_list.add_argument(
+            '--app-id', default='6778',
+            help="Specify the github APP ID, Default is 6778 (allinone: 7102,"
+                 " OpenLab: 6778).")
+        cmd_repo_list.add_argument(
+            '--app-key', default='/var/lib/zuul/openlab-app-key.pem',
+            help='Specify the app key file path. Default is '
+                 '/var/lib/zuul/openlab-app-key.pem')
+
     def _add_ha_node_cmd(self, parser):
         # openlab ha node
         cmd_ha_node = parser.add_parser('node', help='Manage HA node.')
@@ -64,6 +87,14 @@ class OpenLabCmd(object):
         cmd_ha_node_list = cmd_ha_node_subparsers.add_parser(
             'list', help='List all nodes.')
         cmd_ha_node_list.set_defaults(func=self.ha_node_list)
+        cmd_ha_node_list.add_argument(
+            '--type', action='append',
+            choices=['nodepool', 'zuul', 'zookeeper'],
+            help='Filter the services with the specified node type.')
+        cmd_ha_node_list.add_argument(
+            '--role', action='append',
+            choices=['master', 'slave', 'zookeeper'],
+            help='Filter the services with the specified node role.')
         # openlab ha node get
         cmd_ha_node_get = cmd_ha_node_subparsers.add_parser(
             'get', help='Get a node.')
@@ -199,6 +230,7 @@ class OpenLabCmd(object):
 
         subparsers = parser.add_subparsers(title='commands',
                                            dest='command')
+        self._add_repo_cmd(subparsers)
         self._add_check_cmd(subparsers)
         self._add_ha_cmd(subparsers)
 
@@ -223,6 +255,14 @@ class OpenLabCmd(object):
     def _header_print(self, header):
         print(_color(header))
         print(_color("=" * 48))
+
+    def repo_list(self):
+        r = repo.Repo(self.args.server,
+                      self.args.app_id,
+                      self.args.app_key)
+        repos = r.list()
+        print(utils.format_output('repo', repos))
+        print("Total: %s" % len(repos))
 
     def check(self):
         utils.NOCOLOR = self.args.nocolor
@@ -271,11 +311,15 @@ class OpenLabCmd(object):
 
     @_zk_wrapper
     def ha_node_list(self):
-        result = self.zk.list_nodes()
+        result = self.zk.list_nodes(node_role_filter=self.args.role,
+                                    node_type_filter=self.args.type)
         if self.args.format == 'pretty':
             print(utils.format_output('node', result))
         else:
-            print(result.to_dict())
+            dict_result = []
+            for node in result:
+                dict_result.append(node.to_dict())
+            print(dict_result)
 
     @_zk_wrapper
     def ha_node_get(self):
@@ -358,7 +402,10 @@ class OpenLabCmd(object):
 
     @_zk_wrapper
     def ha_config_update(self):
-        self.zk.update_configuration(self.args.name, self.args.value)
+        value = self.args.value
+        if self.args.name in ['allow_switch']:
+            value = self._str2bool(value)
+        self.zk.update_configuration(self.args.name, value)
 
     def run(self):
         # no arguments, print help messaging, then exit with error(1)

@@ -14,6 +14,7 @@ from openlabcmd import service
 
 
 CONFIGURATION_DICT = {
+    'allow_switch': False,
     'dns_log_domain': 'test-logs.openlabtesting.org',
     'dns_master_public_ip': None,
     'dns_provider_account': None,
@@ -23,7 +24,7 @@ CONFIGURATION_DICT = {
     'dns_status_domain': 'test-status.openlabtesting.org',
     'github_repo': None,
     'github_user_token': None,
-    'heartbeat_timeout_second': 150,
+    'heartbeat_timeout_second': 600,
     'logging_level': 'DEBUG',
     'logging_path': '/etc/openlab/ha_healthchecker/ha_healthchecker.log',
     'unnecessary_service_switch_timeout_hour': 48,
@@ -84,19 +85,32 @@ class ZooKeeper(object):
             return True
         return self.client.state == KazooState.LOST
 
-    def connect(self, hosts=None, read_only=False):
+    def connect(self, hosts=None, timeout=None, read_only=False):
         if not hosts:
             if not self.config:
                 raise exceptions.ClientError('Either config object or hosts '
                                              'string should be provided.')
-            else:
-                try:
-                    hosts = self.config.get('ha', 'zookeeper_hosts')
-                except configparser.NoOptionError:
-                    raise exceptions.ClientError(
-                        "The config doesn't [ha]zookeeper_hosts option.")
+            try:
+                hosts = hosts or self.config.get('ha', 'zookeeper_hosts')
+            except (configparser.NoOptionError, configparser.NoSectionError):
+                raise exceptions.ClientError(
+                    "The config doesn't contain [ha]zookeeper_hosts option.")
+
+        if not timeout:
+            timeout = self.config.get('ha', 'zookeeper_connect_timeout',
+                                      fallback=5)
+        try:
+            timeout = int(timeout)
+        except ValueError:
+            raise exceptions.ClientError("zookeeper_connect_timeout "
+                                         "should be int-like format.")
+        if timeout <= 0:
+            raise exceptions.ClientError("zookeeper_connect_timeout "
+                                         "should be larger than 0.")
+
         if self.client is None:
-            self.client = KazooClient(hosts=hosts, read_only=read_only)
+            self.client = KazooClient(hosts=hosts, timeout=timeout,
+                                      read_only=read_only)
             self.client.add_listener(self._connection_listener)
             # Manually retry initial connection attempt
             while True:
@@ -122,14 +136,35 @@ class ZooKeeper(object):
         return wrapper
 
     @_client_check_wrapper
-    def list_nodes(self):
+    def list_nodes(self, with_zk=True, node_role_filter=None,
+                   node_type_filter=None):
+        if node_role_filter:
+            if isinstance(node_role_filter, str):
+                node_role_filter = [node_role_filter]
+            if not isinstance(node_role_filter, list):
+                raise exceptions.ValidationError("node_role_filter should be "
+                                                 "a list or string.")
+        if node_type_filter:
+            if isinstance(node_type_filter, str):
+                node_type_filter = [node_type_filter]
+            if not isinstance(node_type_filter, list):
+                raise exceptions.ValidationError("node_type_filter should be "
+                                                 "a list or string.")
+
         path = '/ha'
         try:
             nodes_objs = []
             for exist_node in self.client.get_children(path):
-                if exist_node != 'configuration':
-                    node_obj = self.get_node(exist_node)
-                    nodes_objs.append(node_obj)
+                if exist_node == 'configuration':
+                    continue
+                if not with_zk and 'zookeeper' in exist_node:
+                    continue
+                node_obj = self.get_node(exist_node)
+                if node_role_filter and node_obj.role not in node_role_filter:
+                    continue
+                if node_type_filter and node_obj.type not in node_type_filter:
+                    continue
+                nodes_objs.append(node_obj)
         except kze.NoNodeError:
             return []
         return sorted(nodes_objs, key=lambda x: x.name)
@@ -205,7 +240,8 @@ class ZooKeeper(object):
             else:
                 if node_obj.status == node.NodeStatus.MAINTAINING:
                     node_obj.status = node.NodeStatus.UP
-                    node_obj.heartbeat = datetime.datetime.utcnow()
+                    node_obj.heartbeat = datetime.datetime.utcnow().strftime(
+                        '%Y-%m-%d %H:%M:%S')
                 else:
                     raise exceptions.ClientError(
                         "The node must be in 'maintaining' status when trying "
@@ -335,7 +371,8 @@ class ZooKeeper(object):
         nodes' switch status are `start`, it will start to switch cluster.
         """
         for node in self.list_nodes():
-            self.update_node(node.name, switch_status='start')
+            if node.type != 'zookeeper':
+                self.update_node(node.name, switch_status='start')
 
     def _init_ha_configuration(self):
         path = '/ha/configuration'
