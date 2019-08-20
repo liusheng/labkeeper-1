@@ -1,3 +1,4 @@
+import copy
 import subprocess
 import six
 
@@ -26,28 +27,30 @@ class PluginMount(type):
     def register_plugin(cls, plugin):
         """Add the plugin to the plugin list and perform any registration logic"""
 
-        # create a plugin instance and store it
-        # optionally you could just store the plugin class and lazily instantiate
-        instance = plugin()
-
-        # save the plugin reference
-        cls.plugins.append(instance)
-
-        # apply plugin logic - in this case connect the plugin to blinker signals
-        # this must be defined in the derived class
-        instance.register_signals()
+        # save the plugin class
+        cls.plugins.append(plugin)
 
 
 @six.add_metaclass(PluginMount)
 class Plugin(object):
     """A plugin which must provide a register_signals() method"""
-    cloud = 'all'
-    ptype = 'Base'
-    name = 'Base Check'
-    failed = False
-    reasons = []
-    nocolor = False
+    ptype = None
+    name = None
     experimental = False
+
+    def __init__(self, cloud, config):
+        self.cloud = cloud
+        self.config = config
+        self.failed = False
+        self.reasons = []
+        # {Recover.code: args_list}
+        # The reasons for this:
+        # 1. Different cloud provider owns different external network name
+        # 2. We don't have the priority to change the name.
+        # 3. For the different name, we cannot hard code into GLOBAL
+        # RECOVER_MAPS.
+        # So we introduce this new value to fit this case.
+        self.internal_recover_args_map = {}
 
     def register_signals(self):
         # print("%s has been loaded." % self.__class__.__name__)
@@ -97,7 +100,15 @@ class Plugin(object):
         print("Recover:")
         for r_code in self.reasons:
             if r_code in RECOVER_MAPS:
-                recover_cmd = RECOVER_MAPS[r_code]['recover'] % self.cloud
+                recover_args = copy.deepcopy(
+                    RECOVER_MAPS[r_code]['recover_args'])
+                recover_args.insert(0, self.cloud)
+                if (self.internal_recover_args_map and
+                        self.internal_recover_args_map.get(r_code)):
+                    recover_args.extend(
+                        self.internal_recover_args_map[r_code])
+                recover_cmd = RECOVER_MAPS[r_code]['recover'].format(
+                    *recover_args)
                 ret, res = subprocess.getstatusoutput(recover_cmd)
                 if not ret:
                     self._print_recover_line(True, recover_cmd)

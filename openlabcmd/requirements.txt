@@ -1,8 +1,11 @@
 configparser
-enum;python_version=='2.7'
+iso8601
 kazoo
 openstackclient
+openstacksdk
+os-client-config
 pbr>=1.3
 prettytable
 pytz
 PyYAML>=5.1
+wrapt>=1.11.1

@@ -11,6 +11,7 @@ from openlabcmd import utils
 from openlabcmd.utils import _color
 from openlabcmd import zk
 from openlabcmd import repo
+from openlabcmd import hint
 
 
 class OpenLabCmd(object):
@@ -55,6 +56,16 @@ class OpenLabCmd(object):
                                help='Enable the no color mode.')
         cmd_check.add_argument('--recover', action='store_true',
                                help='Enable the auto recover mode.')
+
+    def _add_hint_cmd(self, parser):
+        # openlab hint
+        cmd_hint = parser.add_parser(
+            'hint',
+            help='Print hint info.')
+        cmd_hint.set_defaults(func=self.hint)
+        cmd_hint.add_argument('--type', default='all',
+                              help="Specify a hint type, "
+                                   "like 'resource', 'redundant'.")
 
     def _add_repo_cmd(self, parser):
         # openlab repo list
@@ -187,6 +198,19 @@ class OpenLabCmd(object):
             'switch', help='Switch Master and Slave role.')
         cmd_ha_service_get.set_defaults(func=self.ha_cluster_switch)
 
+        # openlab ha cluster repair
+        cmd_ha_cluster_repair = cmd_ha_cluster_subparsers.add_parser(
+            'repair', help='HA deployment check and repair.')
+        cmd_ha_cluster_repair.set_defaults(func=self.ha_cluster_repair)
+        cmd_ha_cluster_repair.add_argument(
+            '--security-group',
+            help='Repair the Security Group of HA deployment.',
+            action='store_true', required=True)
+        cmd_ha_cluster_repair.add_argument(
+            '--dry-run', help='Only report the check list of HA deployment,'
+                              ' not try to repair if there is a check error.',
+            action='store_true')
+
     def _add_ha_config_cmd(self, parser):
         # openlab ha cluster
         cmd_ha_config = parser.add_parser('config',
@@ -230,6 +254,7 @@ class OpenLabCmd(object):
 
         subparsers = parser.add_subparsers(title='commands',
                                            dest='command')
+        self._add_hint_cmd(subparsers)
         self._add_repo_cmd(subparsers)
         self._add_check_cmd(subparsers)
         self._add_ha_cmd(subparsers)
@@ -247,7 +272,7 @@ class OpenLabCmd(object):
             raise exceptions.ClientError(
                 "Error: Cloud %(cloud)s is not found. Please use the cloud "
                 "in %(clouds_list)s or just use 'all'." % {
-                    'cloud': cloud, 'clouds_list':clouds_list})
+                    'cloud': cloud, 'clouds_list': clouds_list})
 
         clouds_list = clouds_list if cloud == 'all' else [cloud]
         return clouds_list
@@ -255,6 +280,10 @@ class OpenLabCmd(object):
     def _header_print(self, header):
         print(_color(header))
         print(_color("=" * 48))
+
+    def hint(self):
+        h = hint.Hint(self.args.type)
+        h.print_hints()
 
     def repo_list(self):
         r = repo.Repo(self.args.server,
@@ -281,11 +310,11 @@ class OpenLabCmd(object):
 
         cnt = len(cloud_list)
         exit_flag = False
-        for i, c in enumerate(cloud_list):
-            header = "%s/%s. %s cloud check" % (i + 1, cnt, c)
+        for index, cloud in enumerate(cloud_list):
+            header = "%s/%s. %s cloud check" % (index + 1, cnt, cloud)
             self._header_print(header)
-            for plugin in plugins:
-                plugin.cloud = c
+            for plugin_class in plugins:
+                plugin = plugin_class(cloud, self.config)
                 plugin.check_begin()
                 plugin.check()
                 plugin.check_end()
@@ -391,6 +420,17 @@ class OpenLabCmd(object):
             print("Switch success")
         except exceptions.OpenLabCmdError:
             print("Switch failed")
+    
+    @_zk_wrapper
+    def ha_cluster_repair(self):
+        # TODO(bz) This repair may support other function
+        if self.args.security_group:
+            try:
+                self.zk.check_and_repair_deployment_sg(
+                    is_dry_run=self.args.dry_run)
+                print("Check success")
+            except exceptions.OpenLabCmdError:
+                print("Check failed")
 
     @_zk_wrapper
     def ha_config_list(self):
@@ -417,7 +457,6 @@ class OpenLabCmd(object):
             print(help_message)
             return 1
         self.args.func()
-
 
     def _initConfig(self):
         self.config = configparser.ConfigParser()

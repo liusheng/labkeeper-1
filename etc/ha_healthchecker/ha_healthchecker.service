@@ -1,0 +1,5 @@
+[Unit]
+Description=OpenLab HA Healthchecker
+
+[Service]
+ExecStart=/usr/local/bin/ha_healthchecker
