@@ -22,9 +22,6 @@ labels:
   - name: ubuntu-xenial-ut
     min-ready: 3
     max-ready-age: 14400
-  - name: ubuntu-xenial-vexxhost-lb
-    min-ready: 0
-    max-ready-age: 14400
   - name: ubuntu-xenial-citynetwork
     min-ready: 4
     max-ready-age: 14400
@@ -32,7 +29,7 @@ labels:
     min-ready: 0
     max-ready-age: 14400
   - name: ubuntu-xenial-arm64
-    min-ready: 4
+    min-ready: 5
     max-ready-age: 14400
   - name: ubuntu-xenial-gpu
     min-ready: 0
@@ -41,54 +38,31 @@ labels:
     min-ready: 0
 
 providers:
-  #VEXXHOST
-  # limits: -1 vms, -1 Cores, 163840 M Ram
-  - name: vexxhost-openlab
-    cloud: vexxhost
+  #LinaroCloud
+  # limits: 10 vms, 128 Cores, 132000 M Ram
+  # For flavor limits, linaro can only create 8 vms at most.
+  # But there is a internal test ARM instance in allinone, so there will be 7 ARM instances providered by linaro for online env.
+  - name: linaro-openlab
+    cloud: linaro
     driver: openstack
-    image-name-format: 'openlab-{image_name}-{timestamp}'
-    launch-timeout: 300
-    launch-retries: 1
-    boot-timeout: 60
-    max-concurrency: 5
+    launch-timeout: 1200
+    boot-timeout: 1200
+    max-concurrency: 10
     cloud-images:
       - name: ubuntu-xenial-arm64
-        image-name: openlab-ubuntu-xenial-arm64-bazel-0.28.1+0.23.2
-    diskimages:
-      - name: ubuntu-xenial
-        config-drive: true
-      - name: ubuntu-trusty
-        config-drive: true
+        image-name: 8baccba3-fa02-45e4-bf49-328763e5671e
     pools:
-      - name: main
-        max-ram: 105472 #163840-6vm(OpenJDK)*8192-1vm(ZK HA)*1024 reserved
-        availability-zones:
-          - ca-ymq-2
+      - name: ubuntu-xenial-linaro
+        max-ram: 163840
         networks:
           - openlab-net
         security-groups:
           - openlab-sg
         labels:
-          - name: ubuntu-xenial-vexxhost-lb
-            diskimage: ubuntu-xenial
-            # 8C-8G-200G
-            flavor-name: 'v1-standard-8'
-#          - name: ubuntu-xenial
-#            diskimage: ubuntu-xenial
-#            # 8C-8G-200G
-#            flavor-name: 'v1-standard-8'
-#          - name: ubuntu-trusty
-#            diskimage: ubuntu-trusty
-#            # 8C-8G-200G
-#            flavor-name: 'v1-standard-8'
-#          - name: ubuntu-xenial-ut
-#            diskimage: ubuntu-xenial
-#            # 2C-2G-0G
-#            flavor-name: 'v2-highcpu-2'
           - name: ubuntu-xenial-arm64
             cloud-image: ubuntu-xenial-arm64
             # 16C-16G-80G NOTE: have to use v2 flavor to boot ARM instance
-            flavor-name: 'v2-highcpu-16'
+            flavor-name: 'openlab.medium' #'m1.large.4C8G' #'siddhesh.large'
 
   #ChameleonCloud
   # limits: 15 vms, 80 Cores, 80000 M Ram
